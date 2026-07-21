@@ -19,3 +19,9 @@ build/
 .pub-cache/
 .pub/
 /coverage/
+
+# Firebase config and rules
+firestore.rules
+firestore.indexes.json
+firebase.json
+**/firestore.rules
