@@ -1,0 +1,111 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ------------------------------------
+    // HELPER FUNCTIONS
+    // ------------------------------------
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Whitelist check looking up auth token emails in the admins collection
+    // and explicitly whitelisting admin@test.com
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email == 'admin@test.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.token.email))
+      );
+    }
+
+    // Allows access if authenticated owner OR if it is a mock user (starts with 'uid_')
+    function isOwner(uid) {
+      return (isAuthenticated() && request.auth.uid == uid) || uid.matches('^uid_.*');
+    }
+
+    // ------------------------------------
+    // PUBLIC & ADMIN CONTROLLED CATALOGS
+    // ------------------------------------
+    match /admins/{email} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /products/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /categories/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /banners/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /notifications/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /coupons/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Seeding metadata
+    match /metadata/{id} {
+      allow read, write: if true;
+    }
+
+    // ------------------------------------
+    // USER PROFILE & ADRESSES DATA
+    // ------------------------------------
+    match /users/{uid} {
+      allow read, write: if isAdmin() || isOwner(uid);
+      
+      match /addresses/{addressId} {
+        allow read, write: if isAdmin() || isOwner(uid);
+      }
+    }
+
+    match /carts/{uid} {
+      allow read, write: if isAdmin() || isOwner(uid);
+    }
+
+    // ------------------------------------
+    // ORDER DISPATCH & HISTORY
+    // ------------------------------------
+    match /orders/{orderId} {
+      // Allow creation if admin, authenticated user, or a mock user
+      allow create: if isAdmin() 
+                  || isAuthenticated() 
+                  || request.resource.data.userId.matches('^uid_.*');
+      
+      // Allow reading if admin, authenticated owner, or a mock user
+      allow read: if isAdmin() 
+                  || (isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid))
+                  || (resource != null && resource.data.userId.matches('^uid_.*'));
+      
+      // Allow updates/deletes only for admins (to update status, assign partners, delete, etc.)
+      allow update, delete: if isAdmin();
+    }
+
+    // ------------------------------------
+    // SYSTEM VARIABLES
+    // ------------------------------------
+    match /settings/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /delivery_partners/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

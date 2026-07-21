@@ -1,0 +1,21 @@
+# Environment files
+.env
+.env.*
+
+# OS files
+.DS_Store
+
+# IDE configuration
+.idea/
+*.iml
+.vscode/
+
+# Build and package manager folders
+node_modules/
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/coverage/

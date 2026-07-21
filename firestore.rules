@@ -1,0 +1,148 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ------------------------------------
+    // HELPER FUNCTIONS
+    // ------------------------------------
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Whitelist check looking up auth token emails in the admins collection,
+    // explicitly whitelisting admin@test.com, and @turbocart.com
+    function isAdmin() {
+      return isAuthenticated() && 
+             request.auth.token.email != null && (
+               request.auth.token.email == 'admin@test.com' ||
+               request.auth.token.email.matches('.*@turbocart[.]com') ||
+               exists(/databases/$(database)/documents/admins/$(request.auth.token.email))
+             );
+    }
+
+    // Allows access if authenticated owner OR if it is a mock user (starts with 'uid_')
+    function isOwner(uid) {
+      return (isAuthenticated() && request.auth.uid == uid) || uid.matches('^uid_.*');
+    }
+
+    // Checks if the user is a registered delivery partner
+    function isDeliveryPartner() {
+      return isAuthenticated() && (
+        exists(/databases/$(database)/documents/delivery_partners/$(request.auth.uid)) ||
+        exists(/databases/$(database)/documents/driver_sessions/$(request.auth.uid))
+      );
+    }
+
+    // ------------------------------------
+    // PUBLIC & ADMIN CONTROLLED CATALOGS
+    // ------------------------------------
+    match /admins/{email} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /products/{id} {
+      allow read: if true;
+      // Adding back the safety validation for stock and price to prevent malicious product edits
+      allow write: if isAdmin() 
+        && request.resource.data.price is number 
+        && request.resource.data.price > 0
+        && request.resource.data.stock is int
+        && request.resource.data.stock >= 0
+        && (!request.resource.data.keys().hasAll(['mrp']) || request.resource.data.mrp >= request.resource.data.price);
+    }
+
+    match /categories/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /banners/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /coupons/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Seeding metadata
+    match /metadata/{id} {
+      allow read, write: if true;
+    }
+
+    // ------------------------------------
+    // USER PROFILE, CARTS & ADDRESSES DATA
+    // ------------------------------------
+    match /users/{uid} {
+      allow read, write: if isAdmin() || isOwner(uid);
+      
+      match /addresses/{addressId} {
+        allow read, write: if isAdmin() || isOwner(uid);
+      }
+    }
+
+    match /carts/{uid} {
+      allow read, write: if isAdmin() || isOwner(uid);
+    }
+
+    // ------------------------------------
+    // ORDER DISPATCH & HISTORY
+    // ------------------------------------
+    match /orders/{orderId} {
+      // Allow creation if admin, authenticated user, or a mock user
+      allow create: if isAdmin() 
+                  || isAuthenticated() 
+                  || request.resource.data.userId.matches('^uid_.*');
+      
+      // Allow reading if admin, authenticated owner, mock user, OR Delivery Partner
+      allow read: if isAdmin() 
+                  || (isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid))
+                  || (resource != null && resource.data.userId.matches('^uid_.*'))
+                  || isDeliveryPartner();
+      
+      // Allow updates/deletes for admins. Delivery partners can only update (to change order statuses).
+      allow update: if isAdmin() || isDeliveryPartner();
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------------------
+    // SYSTEM VARIABLES, DELIVERY & LOGS
+    // ------------------------------------
+    match /settings/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /delivery_partners/{id} {
+      allow read: if true;
+      // Admins can manage drivers. Drivers can update their own online/offline statuses.
+      allow write: if isAdmin() || (isAuthenticated() && request.auth.uid == id);
+    }
+
+    match /driver_sessions/{sessionId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == sessionId;
+    }
+
+    match /admin_logs/{logId} {
+      allow read, write: if isAdmin();
+    }
+    
+    match /alerts/{alertId} {
+      allow read, write: if isAdmin();
+    }
+    
+    // ------------------------------------
+    // NOTIFICATIONS
+    // ------------------------------------
+    match /notifications/{userId} {
+      allow read, write: if isAdmin() || isOwner(userId);
+      
+      match /items/{itemId} {
+        allow read, write: if isAdmin() || isOwner(userId);
+      }
+    }
+  }
+}
